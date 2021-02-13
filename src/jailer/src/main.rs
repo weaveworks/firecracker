@@ -49,11 +49,14 @@ pub enum Error {
     GetOldFdFlags(io::Error),
     Gid(String),
     InvalidInstanceId(validators::Error),
+    MacVTapByName(String, io::Error),
+    MacVTapMknod(PathBuf, io::Error),
     MissingParent(PathBuf),
     MkdirOldRoot(io::Error),
     MknodDev(io::Error, &'static str),
     MountBind(io::Error),
     MountPropagationSlave(io::Error),
+    MountSysfs(io::Error),
     NotAFile(PathBuf),
     NotADirectory(PathBuf),
     OpenDevNull(io::Error),
@@ -72,6 +75,7 @@ pub enum Error {
     SetSid(io::Error),
     Uid(String),
     UmountOldRoot(io::Error),
+    UmountSysfs(io::Error),
     UnexpectedListenerFd(i32),
     UnshareNewNs(io::Error),
     UnsetCloexec(io::Error),
@@ -160,6 +164,18 @@ impl fmt::Display for Error {
             GetOldFdFlags(ref err) => write!(f, "Failed to get flags from fd: {}", err),
             Gid(ref gid) => write!(f, "Invalid gid: {}", gid),
             InvalidInstanceId(ref err) => write!(f, "Invalid instance ID: {}", err),
+            MacVTapByName(ref name, ref err) => {
+                write!(f, "Failed to resolve macvtap interface {}: {}", name, err)
+            }
+            MacVTapMknod(ref path, ref err) => write!(
+                f,
+                "{}",
+                format!(
+                    "Failed to create {:?} via mknod inside the jail: {}",
+                    path, err
+                )
+                .replace("\"", "")
+            ),
             MissingParent(ref path) => write!(
                 f,
                 "{}",
@@ -177,6 +193,9 @@ impl fmt::Display for Error {
             ),
             MountBind(ref err) => {
                 write!(f, "Failed to bind mount the jail root directory: {}", err)
+            }
+            MountSysfs(ref err) => {
+                write!(f, "Failed to mount sysfs for network namespace: {}", err)
             }
             MountPropagationSlave(ref err) => {
                 write!(f, "Failed to change the propagation type to slave: {}", err)
@@ -221,6 +240,9 @@ impl fmt::Display for Error {
             SetSid(ref err) => write!(f, "Failed to daemonize: setsid: {}", err),
             Uid(ref uid) => write!(f, "Invalid uid: {}", uid),
             UmountOldRoot(ref err) => write!(f, "Failed to unmount the old jail root: {}", err),
+            UmountSysfs(ref err) => {
+                write!(f, "Failed to unmount sysfs for network namespace: {}", err)
+            }
             UnexpectedListenerFd(fd) => {
                 write!(f, "Unexpected value for the socket listener fd: {}", fd)
             }
@@ -320,6 +342,12 @@ pub fn build_arg_parser() -> ArgParser<'static> {
             Argument::new("version")
                 .takes_value(false)
                 .help("Print the binary version number."),
+        )
+        .arg(
+            Argument::new("macvtap")
+                .takes_value(true)
+                .allow_multiple(true)
+                .help("Name of macvtap interface to make available to the firecracker process."),
         )
 }
 
