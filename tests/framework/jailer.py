@@ -38,6 +38,7 @@ class JailerContext:
     resource_limits = None
     cgroup_ver = None
     parent_cgroup = None
+    macvtaps = None
 
     def __init__(
             self,
@@ -53,6 +54,7 @@ class JailerContext:
             resource_limits=None,
             cgroup_ver=None,
             parent_cgroup=None,
+            macvtaps=None,
             **extra_args
     ):
         """Set up jailer fields.
@@ -77,6 +79,7 @@ class JailerContext:
         self.parent_cgroup = parent_cgroup
         self.ramfs_subdir_name = 'ramfs'
         self._ramfs_path = None
+        self.macvtaps = macvtaps
 
     def __del__(self):
         """Cleanup this jailer context."""
@@ -128,7 +131,10 @@ class JailerContext:
         if self.resource_limits is not None:
             for limit in self.resource_limits:
                 jailer_param_list.extend(['--resource-limit', str(limit)])
-        # applying necessary extra args if needed
+        if self.macvtaps is not None:
+            for vtap in self.macvtaps:
+                jailer_param_list.extend(['--macvtap', str(vtap)])
+        # applying neccessory extra args if needed
         if len(self.extra_args) > 0:
             jailer_param_list.append('--')
             for key, value in self.extra_args.items():

@@ -738,6 +738,23 @@ class Microvm:
         )
         assert self.api_session.is_status_no_content(response.status_code)
 
+    def put_network(
+            self, iface_id, tapname, guest_mac,
+            allow_mmds_requests=False,
+            tx_rate_limiter=None,
+            rx_rate_limiter=None
+    ):
+        """Attach a network device."""
+        response = self.network.put(
+            iface_id=iface_id,
+            host_dev_name=tapname,
+            guest_mac=guest_mac,
+            allow_mmds_requests=allow_mmds_requests,
+            tx_rate_limiter=tx_rate_limiter,
+            rx_rate_limiter=rx_rate_limiter
+        )
+        assert self._api_session.is_status_no_content(response.status_code)
+
     def ssh_network_config(
             self,
             network_config,
