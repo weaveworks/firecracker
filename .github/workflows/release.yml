@@ -1,0 +1,50 @@
+name: release
+
+on:
+  push:
+    tags:
+      - "v*.*.*-macvtap"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v2
+      with:
+        fetch-depth: 0
+    - name: Build
+      run: |
+        tools/devtool -y build
+        toolbox=$(uname -m)-unknown-linux-musl
+        mkdir bin
+        cp build/cargo_target/${toolbox}/debug/{firecracker,jailer} bin/
+    - name: Store firecracker binaries
+      uses: actions/upload-artifact@v2
+      with:
+        name: firecracker-binaries
+        path: bin/*
+        retention-days: 1
+  release:
+    runs-on: ubuntu-latest
+    needs: [build]
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v2
+      with:
+        fetch-depth: 0
+    - name: Download firecracker binaries
+      uses: actions/download-artifact@v2
+      with:
+        name: firecracker-binaries
+        path: bin
+    - name: Release
+      uses: softprops/action-gh-release@v1
+      with:
+        prerelease: false
+        draft: false
+        fail_on_unmatched_files: true
+        body: "See https://github.com/firecracker-microvm/firecracker/releases for latest release notes"
+        files: |
+          bin/firecracker
+          bin/jailer
