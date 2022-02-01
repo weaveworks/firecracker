@@ -1,9 +1,7 @@
-name: release
+name: build binaries (test)
 
 on:
-  push:
-    tags:
-      - "v*.*.*-macvtap"
+  workflow_dispatch: {}
 
 jobs:
   build-x86_64:
@@ -94,9 +92,9 @@ jobs:
         name: firecracker-binaries
         path: bin/*
         retention-days: 1
-  release:
+  results:
     runs-on: ubuntu-latest
-    needs: [build]
+    needs: [build-x86_64, build-aarch64]
     steps:
     - name: Checkout
       uses: actions/checkout@v2
@@ -107,13 +105,6 @@ jobs:
       with:
         name: firecracker-binaries
         path: bin
-    - name: Release
-      uses: softprops/action-gh-release@v1
-      with:
-        prerelease: false
-        draft: false
-        fail_on_unmatched_files: true
-        body: "See https://github.com/firecracker-microvm/firecracker/releases for latest release notes"
-        files: |
-          bin/firecracker*
-          bin/jailer*
+    - name: Check
+      run: |
+        file bin/*
