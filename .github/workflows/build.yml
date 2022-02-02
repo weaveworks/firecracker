@@ -1,4 +1,4 @@
-name: build binaries (test)
+name: build binaries
 
 on:
   workflow_dispatch: {}
