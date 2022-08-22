@@ -21,19 +21,19 @@ echo "::group::Build seccompiler"
 cargo build \
   -p seccompiler \
   --bin seccompiler-bin \
-  --target-dir build/seccompiler \
+  --target-dir ../build/seccompiler \
   --target aarch64-unknown-linux-musl
 echo "::endgroup::"
 
 echo "::group::Build firecracker"
 cargo build \
-  --target-dir build/cargo_target \
+  --target-dir ../build/cargo_target \
   --target aarch64-unknown-linux-musl
 echo "::endgroup::"
 
 echo "::group::Build jailer"
 cargo build \
   -p jailer \
-  --target-dir build/cargo_target \
+  --target-dir ../build/cargo_target \
   --target aarch64-unknown-linux-musl
 echo "::endgroup::"
