@@ -3,7 +3,7 @@
 echo "::group::Install dependencies"
 apt-get --quiet update
 apt-get --quiet --yes install \
-  binutils-dev cmake g++ gcc \
+  binutils-dev cmake g++ gcc clang \
   iperf3 iproute2 libbfd-dev libcurl4-openssl-dev libdw-dev \
   libfdt-dev libiberty-dev libssl-dev lsof make net-tools \
   pkgconf zlib1g-dev tzdata xz-utils flex bison \
