@@ -10,11 +10,13 @@ apt-get --quiet --yes install \
   librust-kvm-bindings-dev curl file git lsof openssh-client
 echo "::endgroup::"
 
+target=aarch64-unknown-linux-musl
+
 echo "::group::Set up Rust"
 curl https://sh.rustup.rs -sSf \
   | sh -s -- -y --default-toolchain "1.52.1"
 source $HOME/.cargo/env
-rustup target add aarch64-unknown-linux-musl
+rustup target add "$target"
 echo "::endgroup::"
 
 echo "::group::Build seccompiler"
@@ -22,18 +24,18 @@ cargo build \
   -p seccompiler \
   --bin seccompiler-bin \
   --target-dir ../build/seccompiler \
-  --target aarch64-unknown-linux-musl
+  --target "$target"
 echo "::endgroup::"
 
 echo "::group::Build firecracker"
 cargo build \
   --target-dir ../build/cargo_target \
-  --target aarch64-unknown-linux-musl
+  --target "$target"
 echo "::endgroup::"
 
 echo "::group::Build jailer"
 cargo build \
   -p jailer \
   --target-dir ../build/cargo_target \
-  --target aarch64-unknown-linux-musl
+  --target "$target"
 echo "::endgroup::"
