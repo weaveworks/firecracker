@@ -19,8 +19,8 @@ jobs:
         tools/devtool -y build
         toolbox=$(uname -m)-unknown-linux-musl
         mkdir -p bin
-        cp build/cargo_target/${toolbox}/debug/firecracker bin/firecracker-$(uname -m)
-        cp build/cargo_target/${toolbox}/debug/jailer bin/jailer-$(uname -m)
+        cp build/cargo_target/${toolbox}/debug/firecracker bin/firecracker_amd64
+        cp build/cargo_target/${toolbox}/debug/jailer bin/jailer_amd64
     - name: "Store firecracker binaries"
       uses: actions/upload-artifact@v2
       with:
