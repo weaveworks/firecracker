@@ -38,6 +38,7 @@ class JailerContext:
     resource_limits = None
     cgroup_ver = None
     parent_cgroup = None
+    macvtaps = None
 
     def __init__(
         self,
@@ -53,6 +54,7 @@ class JailerContext:
         resource_limits=None,
         cgroup_ver=None,
         parent_cgroup=None,
+        macvtaps=None,
         **extra_args,
     ):
         """Set up jailer fields.
@@ -77,6 +79,7 @@ class JailerContext:
         self.parent_cgroup = parent_cgroup
         self.ramfs_subdir_name = "ramfs"
         self._ramfs_path = None
+        self.macvtaps = macvtaps
 
     def __del__(self):
         """Cleanup this jailer context."""
@@ -123,6 +126,11 @@ class JailerContext:
             for limit in self.resource_limits:
                 jailer_param_list.extend(["--resource-limit", str(limit)])
         # applying necessary extra args if needed
+                jailer_param_list.extend(['--cgroup', str(cgroup)])
+        if self.macvtaps is not None:
+            for vtap in self.macvtaps:
+                jailer_param_list.extend(['--macvtap', str(vtap)])
+        # applying neccessory extra args if needed
         if len(self.extra_args) > 0:
             jailer_param_list.append("--")
             for key, value in self.extra_args.items():
@@ -219,7 +227,7 @@ class JailerContext:
             return "ip netns exec {} ".format(self.netns)
         return ""
 
-    def setup(self, use_ramdisk=False):
+    def setup(self, create_netns, use_ramdisk=False):
         """Set up this jailer context."""
         os.makedirs(
             self.chroot_base if self.chroot_base is not None else DEFAULT_CHROOT_PATH,
@@ -236,8 +244,8 @@ class JailerContext:
             cmd = "chown {}:{} {}".format(self.uid, self.gid, self._ramfs_path)
             utils.run_cmd(cmd)
 
-        if self.netns and self.netns not in utils.run_cmd("ip netns list")[1]:
-            utils.run_cmd("ip netns add {}".format(self.netns))
+        if self.netns and create_netns:
+            utils.run_cmd('ip netns add {}'.format(self.netns))
 
     def cleanup(self):
         """Clean up this jailer context."""
