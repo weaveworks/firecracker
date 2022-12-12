@@ -409,11 +409,12 @@ class Microvm:
         log_file="log_fifo",
         log_level="Info",
         use_ramdisk=False,
+        create_netns=True,
         metrics_path=None,
     ):
         """Start a microVM as a daemon or in a screen session."""
         # pylint: disable=subprocess-run-check
-        self.jailer.setup(use_ramdisk=use_ramdisk)
+        self._jailer.setup(create_netns, use_ramdisk=use_ramdisk)
         self._api_socket = self.jailer.api_socket_path()
         self._api_session = Session()
 
@@ -661,10 +662,28 @@ class Microvm:
         )
         assert self.api_session.is_status_no_content(response.status_code)
 
+    def put_network(
+            self, iface_id, tapname, guest_mac,
+            allow_mmds_requests=False,
+            tx_rate_limiter=None,
+            rx_rate_limiter=None
+    ):
+        """Attach a network device."""
+        response = self.network.put(
+            iface_id=iface_id,
+            host_dev_name=tapname,
+            guest_mac=guest_mac,
+            allow_mmds_requests=allow_mmds_requests,
+            tx_rate_limiter=tx_rate_limiter,
+            rx_rate_limiter=rx_rate_limiter
+        )
+        assert self._api_session.is_status_no_content(response.status_code)
+
     def ssh_network_config(
         self,
         network_config,
         iface_id,
+        allow_mmds_requests=False,
         tx_rate_limiter=None,
         rx_rate_limiter=None,
         tapname=None,
@@ -694,14 +713,8 @@ class Microvm:
         tap = self.create_tap_and_ssh_config(host_ip, guest_ip, netmask_len, tapname)
         guest_mac = net_tools.mac_from_ip(guest_ip)
 
-        response = self.network.put(
-            iface_id=iface_id,
-            host_dev_name=tapname,
-            guest_mac=guest_mac,
-            tx_rate_limiter=tx_rate_limiter,
-            rx_rate_limiter=rx_rate_limiter,
-        )
-        assert self._api_session.is_status_no_content(response.status_code)
+        self.put_network(iface_id, tapname, guest_mac, allow_mmds_requests,
+                         tx_rate_limiter, rx_rate_limiter)
 
         return tap, host_ip, guest_ip
 
