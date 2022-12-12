@@ -7,18 +7,21 @@ use std::io;
 use std::io::Write;
 use std::os::unix::fs::PermissionsExt;
 use std::os::unix::io::AsRawFd;
+use std::os::unix::io::IntoRawFd;
 use std::os::unix::process::CommandExt;
 use std::path::{Component, Path, PathBuf};
 use std::process::{Command, Stdio};
 
+use crate::{cgroup, to_cstring};
+use crate::{Error, Result};
 use utils::arg_parser::Error::MissingValue;
+use utils::net::macvtap::MacVTap;
 use utils::syscall::SyscallReturnCode;
 use utils::{arg_parser, validators};
 
 use crate::cgroup::{Cgroup, CgroupBuilder};
 use crate::chroot::chroot;
 use crate::resource_limits::{ResourceLimits, FSIZE_ARG, NO_FILE_ARG};
-use crate::{Error, Result};
 
 const STDIN_FILENO: libc::c_int = 0;
 const STDOUT_FILENO: libc::c_int = 1;
@@ -101,6 +104,7 @@ pub struct Env {
     extra_args: Vec<String>,
     cgroups: Vec<Box<dyn Cgroup>>,
     resource_limits: ResourceLimits,
+    macvtaps: Vec<String>,
 }
 
 impl Env {
@@ -207,6 +211,14 @@ impl Env {
         if let Some(args) = arguments.multiple_values("resource-limit") {
             Env::parse_resource_limits(&mut resource_limits, args)?;
         }
+        // macvtap arg format: --macvtap if_name => create device node /dev/net/if_name in the chroot.
+        let mut macvtaps = Vec::new();
+        // We do not create here the MacVTaps since we need to do join_netns before that.
+        if let Some(macvtap_args) = arguments.multiple_values("macvtap") {
+            for arg in macvtap_args {
+                macvtaps.push(arg.to_string());
+            }
+        }
 
         Ok(Env {
             id: id.to_owned(),
@@ -223,6 +235,7 @@ impl Env {
             extra_args: arguments.extra_args(),
             cgroups,
             resource_limits,
+            macvtaps,
         })
     }
 
@@ -402,12 +415,65 @@ impl Env {
 
     fn join_netns(path: &str) -> Result<()> {
         // The fd backing the file will be automatically dropped at the end of the scope
-        let netns = File::open(path).map_err(|err| Error::FileOpen(PathBuf::from(path), err))?;
+        let netns_fd = File::open(path)
+            .map_err(|e| Error::FileOpen(PathBuf::from(path), e))?
+            .into_raw_fd();
 
         // SAFETY: Safe because we are passing valid parameters.
-        SyscallReturnCode(unsafe { libc::setns(netns.as_raw_fd(), libc::CLONE_NEWNET) })
+        SyscallReturnCode(unsafe { libc::setns(netns_fd, libc::CLONE_NEWNET) })
             .into_empty_result()
-            .map_err(Error::SetNetNs)
+            .map_err(Error::SetNetNs)?;
+
+        // Since we have ownership here, we also have to close the fd after joining the
+        // namespace. Safe because we are passing valid parameters.
+        SyscallReturnCode(unsafe { libc::close(netns_fd) })
+            .into_empty_result()
+            .map_err(Error::CloseNetNsFd)?;
+
+        // Since namespaces are shared by default when creating a new process using fork or clone,
+        // unshare() is used to disassociate (unshare) the current process from the mount namespace:
+        // https://linux.die.net/man/2/unshare.
+        SyscallReturnCode(unsafe { libc::unshare(libc::CLONE_NEWNS) })
+            .into_empty_result()
+            .map_err(Error::MountSysfs)?;
+
+        // It is not sufficient to join the new network namespace,
+        // we also need to mount a version of /sys that describes
+        // the network namespace.
+
+        // Don't let any mounts propagate back to the parent.
+        // This means that the sysfs of the network namespace will only
+        // get mounted for the jailer process.
+        SyscallReturnCode(unsafe {
+            libc::mount(
+                to_cstring("")?.as_ptr(),
+                to_cstring("/")?.as_ptr(),
+                to_cstring("none")?.as_ptr(),
+                libc::MS_SLAVE | libc::MS_REC,
+                std::ptr::null(),
+            )
+        })
+        .into_empty_result()
+        .map_err(Error::MountSysfs)?;
+
+        // Unmount the current sysfs since it's describing the previous namespace.
+        let cstr_sys = to_cstring(Path::new("/sys"))?;
+        SyscallReturnCode(unsafe { libc::umount2(cstr_sys.as_ptr(), libc::MNT_DETACH) })
+            .into_empty_result()
+            .map_err(Error::UmountSysfs)?;
+
+        // Actually mount the sysfs corresponding to the current namespace.
+        SyscallReturnCode(unsafe {
+            libc::mount(
+                std::ptr::null(),
+                cstr_sys.as_ptr(),
+                to_cstring("sysfs")?.as_ptr(),
+                0,
+                std::ptr::null(),
+            )
+        })
+        .into_empty_result()
+        .map_err(Error::MountSysfs)
     }
 
     fn exec_command(&self, chroot_exec_file: PathBuf) -> io::Error {
@@ -427,7 +493,7 @@ impl Env {
 
     #[cfg(target_arch = "aarch64")]
     fn copy_cache_info(&self) -> Result<()> {
-        use crate::{readln_special, to_cstring, writeln_special};
+        use crate::{readln_special, writeln_special};
 
         const HOST_CACHE_INFO: &str = "/sys/devices/system/cpu/cpu0/cache";
         // Based on https://elixir.free-electrons.com/linux/v4.9.62/source/arch/arm64/kernel/cacheinfo.c#L29.
@@ -488,7 +554,7 @@ impl Env {
 
     #[cfg(target_arch = "aarch64")]
     fn copy_midr_el1_info(&self) -> Result<()> {
-        use crate::{readln_special, to_cstring, writeln_special};
+        use crate::{readln_special, writeln_special};
 
         const HOST_MIDR_EL1_INFO: &str = "/sys/devices/system/cpu/cpu0/regs/identification";
 
@@ -517,11 +583,7 @@ impl Env {
     pub fn run(mut self) -> Result<()> {
         let exec_file_name = self.copy_exec_to_chroot()?;
         let chroot_exec_file = PathBuf::from("/").join(&exec_file_name);
-
-        // Join the specified network namespace, if applicable.
-        if let Some(ref path) = self.netns {
-            Env::join_netns(path)?;
-        }
+        let mut macvtaps = Vec::new();
 
         // Set limits on resources.
         self.resource_limits.install()?;
@@ -537,6 +599,18 @@ impl Env {
         for cgroup in &self.cgroups {
             // it will panic if any cgroup fails to attach
             cgroup.attach_pid().unwrap();
+        }
+
+        // Join the specified network namespace, if applicable.
+        if let Some(ref path) = self.netns {
+            Env::join_netns(path)?;
+        }
+
+        for macvtap in &self.macvtaps {
+            macvtaps.push(
+                MacVTap::by_name(&macvtap)
+                    .map_err(|e| Error::MacVTapByName(macvtap.to_string(), e))?,
+            );
         }
 
         // If daemonization was requested, open /dev/null before chrooting.
@@ -581,6 +655,14 @@ impl Env {
                 );
                 println!("MMDS version 2 will not be available to use.");
             });
+
+        // Create requested macvtap devices inside the jailer.
+        for iface in &macvtaps {
+            let path = Path::new("/dev/net").join(&iface.if_name);
+            iface
+                .mknod(&path, self.uid, self.gid)
+                .map_err(|e| Error::MacVTapMknod(path, e))?
+        }
 
         // Daemonize before exec, if so required (when the dev_null variable != None).
         if let Some(dev_null) = dev_null {
@@ -634,6 +716,7 @@ mod tests {
         pub cgroups: Vec<&'a str>,
         pub resource_limits: Vec<&'a str>,
         pub parent_cgroup: Option<&'a str>,
+        pub macvtaps: Vec<&'a str>,
     }
 
     impl ArgVals<'_> {
@@ -651,6 +734,7 @@ mod tests {
                 cgroups: vec!["cpu.shares=2", "cpuset.mems=0"],
                 resource_limits: vec!["no-file=1024", "fsize=1048575"],
                 parent_cgroup: None,
+                macvtaps: vec![],
             }
         }
     }
@@ -683,6 +767,11 @@ mod tests {
         for limit in &arg_vals.resource_limits {
             arg_vec.push("--resource-limit".to_string());
             arg_vec.push((*limit).to_string());
+        }
+        // Append cgroups arguments
+        for macvtap in &arg_vals.macvtaps {
+            arg_vec.push("--macvtap".to_string());
+            arg_vec.push((*macvtap).to_string());
         }
 
         if let Some(s) = arg_vals.netns {
@@ -752,7 +841,7 @@ mod tests {
             netns: None,
             daemonize: false,
             new_pid_ns: false,
-            ..good_arg_vals
+            ..good_arg_vals.clone()
         };
 
         let arg_parser = build_arg_parser();
@@ -833,6 +922,10 @@ mod tests {
             parent_cgroup: Some("/root"),
             ..base_invalid_arg_vals.clone()
         };
+        let macvtap_args = ArgVals {
+            macvtaps: vec!["vtap1", "vtap0"],
+            ..good_arg_vals.clone()
+        };
 
         let arg_parser = build_arg_parser();
         args = arg_parser.arguments().clone();
@@ -856,6 +949,8 @@ mod tests {
         args = arg_parser.arguments().clone();
         args.parse(&make_args(&invalid_format)).unwrap();
         assert!(Env::new(&args, 0, 0).is_err());
+        args.parse(&make_args(&macvtap_args)).unwrap();
+        assert!(Env::new(&args, 0, 0).is_ok());
 
         // The chroot-base-dir param is not validated by Env::new, but rather in run, when we
         // actually attempt to create the folder structure (the same goes for netns).
@@ -1042,6 +1137,7 @@ mod tests {
             cgroups: Vec::new(),
             resource_limits: Vec::new(),
             parent_cgroup: None,
+            macvtaps: Vec::new(),
         };
         fs::write(exec_file_path, "some_content").unwrap();
         args.parse(&make_args(&some_arg_vals)).unwrap();
