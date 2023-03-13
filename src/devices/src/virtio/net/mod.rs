@@ -35,13 +35,13 @@ pub enum NetQueue {
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     /// Open tap device failed
-    #[error("Open tap device failed: {0}")]
+    #[error("Open tap device failed")]
     TapOpen(TapError),
     /// Setting tap interface offload flags failed
-    #[error("Setting tap interface offload flags failed: {0}")]
+    #[error("Setting tap interface offload flags failed")]
     TapSetOffload(TapError),
     /// Setting vnet header size failed
-    #[error("Setting vnet header size failed: {0}")]
+    #[error("Setting vnet header size failed")]
     TapSetVnetHdrSize(TapError),
     /// EventFd error
     #[error("EventFd error: {0}")]

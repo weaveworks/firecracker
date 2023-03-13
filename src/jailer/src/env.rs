@@ -12,7 +12,7 @@ use std::os::unix::process::CommandExt;
 use std::path::{Component, Path, PathBuf};
 use std::process::{Command, Stdio};
 
-use crate::{cgroup, to_cstring};
+use crate::{to_cstring};
 use crate::{Error, Result};
 use utils::arg_parser::Error::MissingValue;
 use utils::net::macvtap::MacVTap;

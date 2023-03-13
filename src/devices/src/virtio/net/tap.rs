@@ -19,7 +19,7 @@ use std::path::Path;
 use net_gen::ifreq;
 use utils::{
     ioctl::{ioctl_with_mut_ref, ioctl_with_ref, ioctl_with_val},
-    ioctl_expr, ioctl_ioc_nr, ioctl_iow_nr,
+    ioctl_ioc_nr, ioctl_iow_nr,
     net::macvtap::MacVTap,
 };
 
@@ -53,14 +53,19 @@ pub enum Error {
     #[error("Error while setting size of the vnet header: {0}")]
     SetSizeOfVnetHdr(IoError),
     /// Unable to create tap interface.
+    #[error("Error while creating tap device: {0}")]
     CreateTap(IoError),
     /// Tap interface device is not a character device.
+    #[error("Invalid tap device type")]
     InvalidTapDevType,
     /// ioctl failed.
+    #[error("Error performing ioctl: {0}")]
     IoctlError(IoError),
     /// Unable to open tap interface device.
+    #[error("Error while opening tap device: {0}")]
     OpenTapDev(IoError),
     /// Unable to stat tap interface device for macvtap interface.
+    #[error("Error while stating interface device: {0}")]
     StatTapDev(IoError),
 }
 
